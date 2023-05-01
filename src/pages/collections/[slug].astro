@@ -4,25 +4,27 @@ import SEO from "src/components/seo/seo.astro";
 import Document from "src/layouts/document.astro";
 import { ExtendedCollectionInfo } from "types/CollectionInfo";
 import { MarkdownInstance } from "astro";
-import { getPostsByCollection } from "utils/api";
+import { getPostsByCollection, getCollectionBySourcePath } from "utils/api";
 import CollectionPage from "src/views/collections/collection-page.astro";
 import CollectionChapter from "src/views/collections/collection-chapter.astro";
 import { SubHeader } from "src/components/subheader/subheader";
 import { translate } from "utils/translations";
 
 export async function getStaticPaths() {
-	const collections = await Astro.glob(
-		"../../../content/collections/**/index.md"
-	);
+	return [
+		...(await Astro.glob("../../../content/collections/**/index.md")),
+		...(await Astro.glob("../../../content/collections/**/index.mdx")),
+		...(await Astro.glob("../../../content/collections/**/index.astro")),
+	].map((file) => {
+		const collection = getCollectionBySourcePath(file.file);
 
-	return collections.map((collection) => {
 		return {
 			params: {
-				slug: collection.frontmatter.slug,
+				slug: collection.slug,
 			},
 			props: {
-				Content: collection.Content,
-				collection: collection.frontmatter,
+				Content: file.default,
+				collection,
 			},
 		};
 	});

@@ -6,18 +6,16 @@ import {
 	PostInfo,
 	Languages,
 	CollectionInfo,
-	ExtendedPostInfo,
 } from "types/index";
-import * as fs from "fs";
+import { promises as fs } from "fs";
 import { join } from "path";
 import { isNotJunk } from "junk";
 import { getImageSize } from "../utils/get-image-size";
 import { getFullRelativePath } from "./url-paths";
-import matter from "gray-matter";
+import { getFrontmatter } from "./get-frontmatter";
 import dayjs from "dayjs";
 import {
 	count,
-	rehypeWordCount,
 	WordCounts,
 } from "../utils/markdown/rehype-word-count";
 import { unified } from "unified";
@@ -84,16 +82,16 @@ const fullUnicorns: UnicornInfo[] = unicornsRaw.map((unicorn) => {
 	return newUnicorn;
 });
 
-function getCollections(): Array<CollectionInfo> {
-	const slugs = fs.readdirSync(collectionsDirectory).filter(isNotJunk);
-	const collections = slugs.map((slug) => {
-		const fileContents = fs.readFileSync(
-			join(collectionsDirectory, slug, "index.md"),
-			"utf8"
-		);
+async function getCollection(
+	path: string,
+	slug: string
+): Promise<CollectionInfo[]> {
+	const results = await getFrontmatter(path);
+	const locales = results.map((r) => r.lang);
+	const arr: CollectionInfo[] = [];
 
-		const frontmatter = matter(fileContents).data as RawCollectionInfo;
-
+	for (const { lang, data } of results) {
+		const frontmatter = data as RawCollectionInfo;
 		const coverImgSize = getImageSize(
 			frontmatter.coverImg,
 			join(collectionsDirectory, slug),
@@ -115,72 +113,79 @@ function getCollections(): Array<CollectionInfo> {
 			fullUnicorns.find((u) => u.id === authorId)
 		);
 
-		return {
+		arr.push({
 			...(frontmatter as RawCollectionInfo),
+			locales,
+			locale: lang,
 			slug,
 			coverImgMeta,
 			authorsMeta,
-		};
-	});
-	return collections;
+		});
+	}
+
+	return arr;
 }
 
-const collections = getCollections();
-
-function getPosts(): Array<PostInfo> {
-	const slugs = fs.readdirSync(postsDirectory).filter(isNotJunk);
-	const posts = slugs.flatMap((slug) => {
-		const files = fs
-			.readdirSync(join(postsDirectory, slug))
+const collections = (
+	await Promise.all(
+		(await fs.readdir(collectionsDirectory))
 			.filter(isNotJunk)
-			.filter((name) => name.startsWith("index.") && name.endsWith(".md"));
+			.map((slug) => getCollection(join(collectionsDirectory, slug), slug))
+	)
+).flat();
 
-		const locales = files
-			.map((name) => name.split(".").at(-2))
-			.map((lang) => (lang === "index" ? "en" : lang) as Languages);
+async function getPost(path: string, slug: string): Promise<PostInfo[]> {
+	const results = await getFrontmatter(path);
+	const locales = results.map((r) => r.lang);
+	const arr: PostInfo[] = [];
 
-		return files.map((file, i): PostInfo => {
-			const fileContents = fs.readFileSync(
-				join(postsDirectory, slug, file),
-				"utf8"
-			);
+	for (const { lang, data, content } of results) {
+		const frontmatter = data as RawPostInfo;
 
-			const frontmatter = matter(fileContents).data as RawPostInfo;
+		const counts = {} as WordCounts;
 
-			const counts = {} as WordCounts;
+		unified()
+			.use(remarkParse)
+			.use(remarkToRehype)
+			.use(rehypeRetext, unified().use(english).use(count(counts)))
+			.use(rehypeStringify)
+			.processSync(content);
 
-			unified()
-				.use(remarkParse)
-				.use(remarkToRehype)
-				.use(rehypeRetext, unified().use(english).use(count(counts)))
-				.use(rehypeStringify)
-				.processSync(fileContents);
-
-			return {
-				...frontmatter,
-				slug,
-				locales,
-				locale: locales[i],
-				authorsMeta: frontmatter.authors.map((authorId) =>
-					fullUnicorns.find((u) => u.id === authorId)
-				),
-				wordCount: (counts.InlineCodeWords || 0) + (counts.WordNode || 0),
-				publishedMeta:
-					frontmatter.published &&
-					dayjs(frontmatter.published).format("MMMM D, YYYY"),
-				editedMeta:
-					frontmatter.edited &&
-					dayjs(frontmatter.edited).format("MMMM D, YYYY"),
-				licenseMeta:
-					frontmatter.license &&
-					licensesRaw.find((l) => l.id === frontmatter.license),
-				collectionMeta:
-					frontmatter.collection &&
-					collections.find((c) => c.slug === frontmatter.collection),
-				socialImg: `/generated/${slug}.twitter-preview.jpg`,
-			};
+		arr.push({
+			...frontmatter,
+			slug,
+			locales,
+			locale: lang,
+			authorsMeta: frontmatter.authors.map((authorId) =>
+				fullUnicorns.find((u) => u.id === authorId)
+			),
+			wordCount: (counts.InlineCodeWords || 0) + (counts.WordNode || 0),
+			publishedMeta:
+				frontmatter.published &&
+				dayjs(frontmatter.published).format("MMMM D, YYYY"),
+			editedMeta:
+				frontmatter.edited && dayjs(frontmatter.edited).format("MMMM D, YYYY"),
+			licenseMeta:
+				frontmatter.license &&
+				licensesRaw.find((l) => l.id === frontmatter.license),
+			collectionMeta:
+				frontmatter.collection &&
+				collections.find((c) => c.slug === frontmatter.collection),
+			socialImg: `/generated/${slug}.twitter-preview.jpg`,
 		});
-	});
+	}
+
+	return arr;
+}
+
+async function getPosts(): Promise<PostInfo[]> {
+	const posts = (
+		await Promise.all(
+			(await fs.readdir(postsDirectory))
+				.filter(isNotJunk)
+				.map((slug) => getPost(join(postsDirectory, slug), slug))
+		)
+	).flat();
 
 	// sort posts by date in descending order
 	posts.sort((post1, post2) => {
@@ -205,12 +210,11 @@ function getPosts(): Array<PostInfo> {
 	return posts;
 }
 
-const posts = getPosts();
+const posts = await getPosts();
 
 const tags = [
 	...posts.reduce((set, post) => {
 		for (const tag of post.tags || []) set.add(tag);
-
 		return set;
 	}, new Set<string>()),
 ];
