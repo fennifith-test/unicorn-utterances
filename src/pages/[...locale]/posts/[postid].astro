@@ -7,41 +7,38 @@ import type { MarkdownInstance } from "astro";
 import { ExtendedPostInfo } from "types/index";
 import BlogPost from "src/views/blog-post/blog-post.astro";
 import { Languages } from "types/index";
+import { getPostBySourcePath } from "utils/api";
 
 export async function getStaticPaths() {
-	const posts = await Astro.glob<ExtendedPostInfo>(
-		"../../../../content/blog/**/*.md"
-	);
+	const posts = [
+		...(await Astro.glob("../../../../content/blog/**/*.md")),
+		// TODO: Uncomment if any mdx/astro posts are added
+		// ...await Astro.glob("../../../../content/blog/**/*.mdx"),
+		// ...await Astro.glob("../../../../content/blog/**/*.astro"),
+	];
 
-	return posts.reduce((arr, post) => {
-		if (post.frontmatter.locale === "en") return arr;
+	return posts.map((file) => {
+		const post = getPostBySourcePath(file.file);
 
-		arr.push({
+		return {
 			params: {
-				locale: post.frontmatter.locale,
-				postid: post.frontmatter.slug,
+				locale: post.locale !== "en" ? post.locale : undefined,
+				postid: post.slug,
 			},
 			props: {
-				locale: post.frontmatter.locale,
-				Content: post.Content,
-				post: post.frontmatter,
-				posts,
+				locale: post.locale,
+				Content: file.default,
+				post,
 			},
-		});
-		return arr;
-	}, []);
+		};
+	});
 }
 
-const { Content, post, posts, locale } = Astro.props as {
+const { Content, post, locale } = Astro.props as {
 	post: ExtendedPostInfo;
 	locale: Languages;
-	posts: MarkdownInstance<ExtendedPostInfo>[];
 	Content: MarkdownInstance<any>["Content"];
 };
-
-const locales = post?.locales || [];
-
-const otherLangs = locales ? locales.filter((t) => t !== post.locale) : [];
 ---
 
 <Document lang={locale}>
@@ -56,10 +53,10 @@ const otherLangs = locales ? locales.filter((t) => t !== post.locale) : [];
 		type="article"
 		canonical={post.originalLink}
 		langData={{
-			otherLangs,
+			otherLangs: post.locales.filter((t) => t != post.locale),
 			currentLang: post.locale,
 		}}
 		shareImage={post.socialImg}
 	/>
-	<BlogPost Content={Content} post={post} posts={posts} />
+	<BlogPost Content={Content} post={post} />
 </Document>

@@ -1,5 +1,5 @@
 import { Languages } from "types/index";
-import { languages } from "constants/index";
+import { languages } from "../constants/index";
 import { basename } from "path";
 import { MarkdownInstance } from "astro";
 

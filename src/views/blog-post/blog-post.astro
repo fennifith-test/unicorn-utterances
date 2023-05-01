@@ -8,7 +8,7 @@ import BlogPostLayout from "./blog-post-layout/blog-post-layout.astro";
 import { Icon } from "astro-icon";
 
 import type { MarkdownInstance } from "astro";
-import { ExtendedPostInfo } from "types/index";
+import { ExtendedPostInfo, PostInfo } from "types/index";
 
 import { siteMetadata } from "constants/site-config";
 import "../../styles/shiki.scss";
@@ -18,30 +18,20 @@ import SeriesToC from "./series/series-toc.astro";
 import SeriesNav from "./series/series-nav.astro";
 import { getPrefixLanguageFromPath } from "utils/translations";
 import RelatedPosts from "components/related-posts/related-posts.astro";
+import { getPostsByCollection } from "utils/api";
 
-const { Content, post, posts } = Astro.props as {
+const { Content, post } = Astro.props as {
 	post: ExtendedPostInfo;
 	Content: MarkdownInstance<any>["Content"];
-	posts: MarkdownInstance<ExtendedPostInfo>[];
 };
 
 const locale = getPrefixLanguageFromPath(Astro.url.pathname);
 
 const GHLink = `https://github.com/${siteMetadata.repoPath}/tree/master${siteMetadata.relativeToPosts}/${post.slug}/index.md`;
 
-let seriesPosts: ExtendedPostInfo[] = [];
+let seriesPosts: PostInfo[] = [];
 if (post.collection && post.order) {
-	seriesPosts = posts
-		.filter(
-			(filterPost) =>
-				filterPost.frontmatter.locale === locale &&
-				filterPost.frontmatter.collection === post.collection
-		)
-		.sort(
-			(postA, postB) =>
-				Number(postA.frontmatter.order) - Number(postB.frontmatter.order)
-		)
-		.map((post) => post.frontmatter);
+	seriesPosts = getPostsByCollection(post.collection, post.locale);
 }
 ---
 

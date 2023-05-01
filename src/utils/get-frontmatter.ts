@@ -2,9 +2,14 @@ import { join } from "path";
 import { promises as fs } from "fs";
 import matter from "gray-matter";
 import * as parser from "@babel/parser";
-import traverse from "@babel/traverse";
+import babelTraverse from "@babel/traverse";
 import toJs from "ast-to-literal";
 import { Languages } from "types/index";
+
+// This fixes babelTraverse not passing through the default import on build
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const traverse =
+	((babelTraverse as any).default as typeof babelTraverse) || babelTraverse;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type FrontmatterResult = { lang: Languages; data: any; content: string };
